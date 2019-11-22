@@ -1,0 +1,99 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Tue Nov 19 10:39:07 2019
+
+@author: caoyuru
+"""
+
+import pandas as pd
+import datetime
+import xlrd
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.utils import shuffle
+from sklearn.model_selection import KFold
+from sklearn.linear_model import LogisticRegression
+
+# Read in the dataset
+xls = pd.ExcelFile('mock-up data v2.xlsx')
+
+raw = pd.read_excel(xls,'2 . Database.RawData')
+vega = pd.read_excel(xls, '3. Vega PTAF')
+frogsep = pd.read_excel(xls, 'frogs-sep')
+frogmar = pd.read_excel(xls, 'frogs-Mar')
+
+# --- Data Cleaning ---
+# Converting excel integer date into Python format datetime (int->tuple->datetime),
+# Only using three colunns, 
+# Remove nan maturity date
+raw_cleaned = raw[raw['Maturity Date'].notnull()][['Maturity Date','Instrument Id','Underlying']]
+raw_cleaned['Maturity Date'] = raw_cleaned['Maturity Date'].apply(lambda x: x if isinstance(x,datetime.datetime) else xlrd.xldate_as_tuple(x,0))
+raw_cleaned['Maturity Date'] = raw_cleaned['Maturity Date'].apply(lambda x:x if isinstance(x,datetime.datetime) else datetime.datetime(*x[0:6]))
+
+# Vega Cutoffdate already in datetime format
+# Remove duplicated underlying index
+vega.sort_values('T2 Date (cutoff date)', inplace = True, ascending = False)
+vega.drop_duplicates(subset = 'RIC (underlying)',keep ='first',inplace = True)
+
+# Merge raw with vega(underlying) left join keep records on raw data
+cutoff_merge = pd.merge(raw_cleaned, vega, left_on = 'Underlying',right_on = 'RIC (underlying)',how = 'left')
+# Remove rows where undelying not found in vega -> compare maturity date to determine fvl
+cutoff_merge = cutoff_merge[cutoff_merge['RIC (underlying)'].notnull()]
+# Primary Fair value by comparing maturity and cut-off date
+cutoff_merge['primaryflv'] = cutoff_merge.apply(lambda x: 2 if x['Maturity Date'] < x['T2 Date (cutoff date)'] else 3, axis = 1)
+
+# Concerns: Same instrument with different underlying -> different fair value references? 
+# cutoff_merge['Instrument Id'].duplicated().unique()
+cutoff_merge.sort_values('primaryflv',inplace = True)
+cutoff_merge.drop_duplicates(subset = 'Instrument Id',keep = 'first', inplace = True)
+
+# Combine the raw into frogs with fvl
+sepmerge = pd.merge(frogsep,cutoff_merge,left_on='Trade Reference',right_on='Instrument Id',how = 'left')
+sepmerge = sepmerge.drop(columns=['Business Date','Structure','Structure Product Type(Final)','Contract Code / PT3','Product Id','Amount Type','Division','Cluster','Product Line','Risk Group','Book','SLA','U/l Security'])
+# dummy encoding pt1-3 features, spread into 77 columns
+pt1 = pd.get_dummies(sepmerge['Product Type 1'])
+pt1 = pt1.rename(columns={'Funding':'Funding1','Nostro':'Nostro1','OTC Derivatives':'OTC Derivatives1'})
+pt2 = pd.get_dummies(sepmerge['Adjustment Type / PT2']) #Convert categorical var into label
+pt2 = pt2.rename(columns={'Funding':'Funding2','Nostro':'Nostro2','Equities':'Equities2'})
+pt3 = pd.get_dummies(sepmerge['Opera Product Type3'])
+pt3 = pt3.rename(columns={'Funding':'Funding3','Nostro':'Nostro3','Equities':'Equities3','OTC Derivatives':'OTC Derivatives3'})
+sepmerge = sepmerge.drop(columns=['Product Type 1','Adjustment Type / PT2','Opera Product Type3'])
+sepmerge = sepmerge.join(pt1).join(pt2).join(pt3)
+
+
+# -- Model part and FVL deciding ---
+primary = sepmerge[sepmerge['primaryflv'].notnull()]
+primary[primary['primaryflv']!=primary['Final Fair Value Category']].shape
+
+# Use dataset left for training classfication model
+# 1.Use the whole dataset as training
+left = sepmerge[sepmerge['primaryflv'].isnull()]
+tree = DecisionTreeClassifier(max_depth = 4,min_samples_split=10)
+X = left.iloc[:,-61:-1]
+tree.fit(X, left['Final Fair Value Category'])
+left['predict'] = tree.predict(X)
+left[left['predict']!=left['Final Fair Value Category']].shape
+
+# 2.K-fold training and testing
+left = shuffle(left)
+kf = KFold(n_splits = 10)
+left['predict2'] = -1
+for train,test in kf.split(left):
+    tree.fit(X.iloc[train],left['Final Fair Value Category'].iloc[train])
+    left['predict2'].iloc[test] = tree.predict(X.iloc[test])
+left[left['predict2']!=left['Final Fair Value Category']].shape
+
+# --- Model fitting for trade product type
+type = sepmerge[['Trade Product Type(Final)','Opera Product Classification Code']]
+code = pd.get_dummies(type['Opera Product Classification Code'])
+type = type.drop(columns=['Opera Product Classification Code'])
+type = type.join(code)
+type.dropna(inplace = True)
+
+
+X = type.iloc[:,1:]
+reg = LogisticRegression().fit(X,type['Trade Product Type(Final)'])
+type['predict'] = reg.predict(X)
+type[type['predict']!=type['Trade Product Type(Final)']].shape
+
+
