@@ -7,3 +7,4 @@ Quantitative and qualitative commentaries are reported to senior management and 
 ## Dataset
 
 The mock-up data has 3 datatable sheets.  
+![Database E-R diagram](https://github.com/mail2sabs03/Error-Check-Automation-/blob/master/Result/databaseE-R.png)
