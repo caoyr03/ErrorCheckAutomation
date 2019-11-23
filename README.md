@@ -12,6 +12,7 @@ An automated error check tool would be helpful to perform an assessment of appro
 
 The mock-up data has 3 datatable sheets.  
 ![Database E-R diagram](https://github.com/mail2sabs03/Error-Check-Automation-/blob/master/Result/databaseE-R.png)
+
 The Frogs Data is the mock-up data that we build our model upon. The raw data sheet and Vega sheet is for referencing the frogs data with related attributes to help the Fair Value Leveling. 
 
 ## Methodology
