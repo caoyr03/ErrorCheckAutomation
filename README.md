@@ -15,5 +15,13 @@ The mock-up data has 3 datatable sheets.
 
 The Frogs Data is the mock-up data that we build our model upon. The raw data sheet and Vega sheet is for referencing the frogs data with related attributes to help the Fair Value Leveling. 
 
-## Methodology
+## Solution
+* Remove duplicates, remove NAs, converting Datetime format
+* Join Raw Data and Vega, compare Maturity date with Cut-off date,   determine primary Fair Value level
+* Join merged table and Frogs Data, one-hot encoding predictor variables, build predicting model for remaining Fair Value Level
+Model we use: Scikit-learn Decision Tree model
+
+## Tools
+We use Python to do data cleaning, model training and save the output file.
+
 
